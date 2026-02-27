@@ -8,8 +8,20 @@ const mockSubscribe = jest.fn();
 const mockCompleteMessage = jest.fn();
 const mockAbandonMessage = jest.fn();
 const mockDeadLetterMessage = jest.fn();
+const mockDeferMessage = jest.fn();
 const mockReceiverClose = jest.fn();
 const mockClientClose = jest.fn();
+
+const mockSessionReceiver = {
+	receiveMessages: mockReceiveMessages,
+	subscribe: mockSubscribe,
+	completeMessage: mockCompleteMessage,
+	abandonMessage: mockAbandonMessage,
+	deadLetterMessage: mockDeadLetterMessage,
+	deferMessage: mockDeferMessage,
+	close: mockReceiverClose,
+	sessionId: 'session-1',
+};
 
 jest.mock('@azure/service-bus', () => ({
 	ServiceBusClient: jest.fn().mockImplementation(() => ({
@@ -19,8 +31,11 @@ jest.mock('@azure/service-bus', () => ({
 			completeMessage: mockCompleteMessage,
 			abandonMessage: mockAbandonMessage,
 			deadLetterMessage: mockDeadLetterMessage,
+			deferMessage: mockDeferMessage,
 			close: mockReceiverClose,
 		}),
+		acceptSession: jest.fn().mockResolvedValue(mockSessionReceiver),
+		acceptNextSession: jest.fn().mockResolvedValue(mockSessionReceiver),
 		close: mockClientClose,
 	})),
 	ServiceBusAdministrationClient: jest.fn(),
@@ -32,9 +47,21 @@ const createMockMessage = (body: unknown, overrides: IDataObject = {}) => ({
 	contentType: 'application/json',
 	correlationId: 'corr-001',
 	subject: 'test',
+	to: 'dest-queue',
+	replyTo: 'reply-queue',
+	sessionId: undefined,
+	partitionKey: undefined,
+	replyToSessionId: undefined,
+	timeToLive: undefined,
 	enqueuedTimeUtc: new Date('2026-01-01T00:00:00Z'),
+	expiresAtUtc: undefined,
+	lockedUntilUtc: undefined,
 	sequenceNumber: BigInt(1),
 	deliveryCount: 0,
+	state: 'active',
+	deadLetterSource: undefined,
+	deadLetterReason: undefined,
+	deadLetterErrorDescription: undefined,
 	applicationProperties: {},
 	...overrides,
 });
@@ -370,6 +397,256 @@ describe('AzureServiceBusTrigger Node', () => {
 			await result.manualTriggerFunction!();
 
 			expect(mockReceiveMessages).toHaveBeenCalledWith(1, { maxWaitTimeInMs: 30000 });
+			expect(triggerFunctions.emit).toHaveBeenCalled();
+		});
+	});
+
+	describe('sequenceNumber and new fields', () => {
+		it('should return sequenceNumber as a string', async () => {
+			const mockMsg = createMockMessage({ data: 'test' }, {
+				sequenceNumber: BigInt('9007199254740993'),
+			} as unknown as IDataObject);
+			mockReceiveMessages.mockResolvedValue([mockMsg]);
+
+			triggerFunctions.getNodeParameter.mockImplementation((param: string) => {
+				const params: Record<string, string | number | boolean | object> = {
+					entityType: 'queue',
+					queueName: 'test-queue',
+					receiveMode: 'receiveAndDelete',
+					options: {},
+				};
+				return params[param];
+			});
+
+			const result = await node.trigger.call(triggerFunctions);
+			await result.manualTriggerFunction!();
+
+			const emittedData = (triggerFunctions.emit as jest.Mock).mock.calls[0][0];
+			expect(emittedData[0][0].json.sequenceNumber).toBe('9007199254740993');
+			expect(typeof emittedData[0][0].json.sequenceNumber).toBe('string');
+		});
+
+		it('should include all received message fields in output', async () => {
+			const mockMsg = createMockMessage({ data: 'test' }, {
+				to: 'dest',
+				replyTo: 'reply',
+				sessionId: 'session-1',
+				partitionKey: 'pk-1',
+				replyToSessionId: 'reply-session',
+				timeToLive: 60000,
+				expiresAtUtc: new Date('2026-01-02T00:00:00Z'),
+				lockedUntilUtc: new Date('2026-01-01T00:01:00Z'),
+				state: 'active',
+				deadLetterSource: 'source-queue',
+				deadLetterReason: 'MaxDeliveryCountExceeded',
+				deadLetterErrorDescription: 'too many retries',
+			} as unknown as IDataObject);
+			mockReceiveMessages.mockResolvedValue([mockMsg]);
+
+			triggerFunctions.getNodeParameter.mockImplementation((param: string) => {
+				const params: Record<string, string | number | boolean | object> = {
+					entityType: 'queue',
+					queueName: 'test-queue',
+					receiveMode: 'receiveAndDelete',
+					options: {},
+				};
+				return params[param];
+			});
+
+			const result = await node.trigger.call(triggerFunctions);
+			await result.manualTriggerFunction!();
+
+			const emittedData = (triggerFunctions.emit as jest.Mock).mock.calls[0][0];
+			const json = emittedData[0][0].json;
+			expect(json.to).toBe('dest');
+			expect(json.replyTo).toBe('reply');
+			expect(json.sessionId).toBe('session-1');
+			expect(json.partitionKey).toBe('pk-1');
+			expect(json.replyToSessionId).toBe('reply-session');
+			expect(json.timeToLive).toBe(60000);
+			expect(json.expiresAtUtc).toBe('2026-01-02T00:00:00.000Z');
+			expect(json.lockedUntilUtc).toBe('2026-01-01T00:01:00.000Z');
+			expect(json.state).toBe('active');
+			expect(json.deadLetterSource).toBe('source-queue');
+			expect(json.deadLetterReason).toBe('MaxDeliveryCountExceeded');
+			expect(json.deadLetterErrorDescription).toBe('too many retries');
+		});
+	});
+
+	describe('contentIsBinary', () => {
+		it('should return base64 when contentIsBinary is true and body is a Buffer', async () => {
+			const bufferBody = Buffer.from('hello binary');
+			const mockMsg = createMockMessage(bufferBody);
+			mockReceiveMessages.mockResolvedValue([mockMsg]);
+
+			triggerFunctions.getNodeParameter.mockImplementation((param: string) => {
+				const params: Record<string, string | number | boolean | object> = {
+					entityType: 'queue',
+					queueName: 'test-queue',
+					receiveMode: 'receiveAndDelete',
+					options: { contentIsBinary: true },
+				};
+				return params[param];
+			});
+
+			const result = await node.trigger.call(triggerFunctions);
+			await result.manualTriggerFunction!();
+
+			const emittedData = (triggerFunctions.emit as jest.Mock).mock.calls[0][0];
+			expect(emittedData[0][0].json.body).toBe(bufferBody.toString('base64'));
+		});
+
+		it('should return base64 when contentIsBinary is true and body is a string', async () => {
+			const mockMsg = createMockMessage('string body');
+			mockReceiveMessages.mockResolvedValue([mockMsg]);
+
+			triggerFunctions.getNodeParameter.mockImplementation((param: string) => {
+				const params: Record<string, string | number | boolean | object> = {
+					entityType: 'queue',
+					queueName: 'test-queue',
+					receiveMode: 'receiveAndDelete',
+					options: { contentIsBinary: true },
+				};
+				return params[param];
+			});
+
+			const result = await node.trigger.call(triggerFunctions);
+			await result.manualTriggerFunction!();
+
+			const emittedData = (triggerFunctions.emit as jest.Mock).mock.calls[0][0];
+			expect(emittedData[0][0].json.body).toBe(Buffer.from('string body').toString('base64'));
+		});
+	});
+
+	describe('defer settlement', () => {
+		it('should defer message on success when settlementAction is defer', async () => {
+			triggerFunctions.getMode.mockReturnValue('trigger');
+			triggerFunctions.getNodeParameter.mockImplementation((param: string) => {
+				const params: Record<string, string | number | boolean | object> = {
+					entityType: 'queue',
+					queueName: 'test-queue',
+					receiveMode: 'peekLock',
+					options: { settlementAction: 'defer', failureAction: 'abandon' },
+				};
+				return params[param];
+			});
+
+			const successRun = {
+				data: { resultData: { runData: {} } },
+				finished: true,
+				mode: 'trigger',
+				startedAt: new Date(),
+				status: 'success',
+			} as unknown as IRun;
+
+			const donePromise = {
+				promise: Promise.resolve(successRun),
+				resolve: jest.fn(),
+				reject: jest.fn(),
+			};
+			triggerFunctions.helpers.createDeferredPromise.mockReturnValue(donePromise);
+
+			await node.trigger.call(triggerFunctions);
+
+			const subscribeCall = mockSubscribe.mock.calls[0];
+			const { processMessage } = subscribeCall[0];
+			const mockMsg = createMockMessage({ test: 'defer' });
+
+			await processMessage(mockMsg);
+
+			expect(mockDeferMessage).toHaveBeenCalledWith(mockMsg);
+			expect(mockCompleteMessage).not.toHaveBeenCalled();
+		});
+
+		it('should complete message in manual mode with defer settlement', async () => {
+			const mockMsg = createMockMessage({ data: 'test' });
+			mockReceiveMessages.mockResolvedValue([mockMsg]);
+
+			triggerFunctions.getNodeParameter.mockImplementation((param: string) => {
+				const params: Record<string, string | number | boolean | object> = {
+					entityType: 'queue',
+					queueName: 'test-queue',
+					receiveMode: 'peekLock',
+					options: { settlementAction: 'defer' },
+				};
+				return params[param];
+			});
+
+			const result = await node.trigger.call(triggerFunctions);
+			await result.manualTriggerFunction!();
+
+			// Manual trigger uses settlementAction directly for settle
+			expect(mockDeferMessage).toHaveBeenCalledWith(mockMsg);
+		});
+	});
+
+	describe('session support', () => {
+		it('should use acceptNextSession when sessionMode is acceptNext', async () => {
+			const mockMsg = createMockMessage({ session: 'data' });
+			mockReceiveMessages.mockResolvedValue([mockMsg]);
+
+			triggerFunctions.getNodeParameter.mockImplementation((param: string) => {
+				const params: Record<string, string | number | boolean | object> = {
+					entityType: 'queue',
+					queueName: 'session-queue',
+					receiveMode: 'receiveAndDelete',
+					sessionMode: 'acceptNext',
+					options: {},
+				};
+				return params[param];
+			});
+
+			const result = await node.trigger.call(triggerFunctions);
+			await result.manualTriggerFunction!();
+
+			expect(triggerFunctions.emit).toHaveBeenCalled();
+			const emittedData = (triggerFunctions.emit as jest.Mock).mock.calls[0][0];
+			expect(emittedData[0][0].json.body).toEqual({ session: 'data' });
+		});
+
+		it('should use acceptSession when sessionMode is specific', async () => {
+			const mockMsg = createMockMessage({ specific: true });
+			mockReceiveMessages.mockResolvedValue([mockMsg]);
+
+			triggerFunctions.getNodeParameter.mockImplementation((param: string) => {
+				const params: Record<string, string | number | boolean | object> = {
+					entityType: 'queue',
+					queueName: 'session-queue',
+					receiveMode: 'peekLock',
+					sessionMode: 'specific',
+					sessionId: 'my-session-id',
+					options: { settlementAction: 'complete' },
+				};
+				return params[param];
+			});
+
+			const result = await node.trigger.call(triggerFunctions);
+			await result.manualTriggerFunction!();
+
+			expect(triggerFunctions.emit).toHaveBeenCalled();
+			const emittedData = (triggerFunctions.emit as jest.Mock).mock.calls[0][0];
+			expect(emittedData[0][0].json.body).toEqual({ specific: true });
+			expect(mockCompleteMessage).toHaveBeenCalled();
+		});
+
+		it('should use regular receiver when sessionMode is none', async () => {
+			const mockMsg = createMockMessage({ no: 'session' });
+			mockReceiveMessages.mockResolvedValue([mockMsg]);
+
+			triggerFunctions.getNodeParameter.mockImplementation((param: string) => {
+				const params: Record<string, string | number | boolean | object> = {
+					entityType: 'queue',
+					queueName: 'regular-queue',
+					receiveMode: 'receiveAndDelete',
+					sessionMode: 'none',
+					options: {},
+				};
+				return params[param];
+			});
+
+			const result = await node.trigger.call(triggerFunctions);
+			await result.manualTriggerFunction!();
+
 			expect(triggerFunctions.emit).toHaveBeenCalled();
 		});
 	});

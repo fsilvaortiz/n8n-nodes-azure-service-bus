@@ -39,7 +39,8 @@
 		]
 	},
 	"dependencies": {
-		"@azure/service-bus": "^7.9.5"
+		"@azure/service-bus": "^7.9.5",
+		"long": "^5.2.3"
 	},
 	"peerDependencies": {
 		"n8n-workflow": "*"

@@ -2,3 +2,12 @@ node_modules/
 dist/
 *.js.map
 .DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.swp
+.env*
+.vscode/
+.idea/
+coverage/
+build.log
