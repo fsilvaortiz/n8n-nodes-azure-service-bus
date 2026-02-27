@@ -12,6 +12,7 @@ import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 import {
 	createServiceBusClient,
 	createReceiver,
+	createSessionReceiver,
 	parseReceivedMessage,
 	getCredentials,
 } from './GenericFunctions';
@@ -32,6 +33,9 @@ async function settleMessage(
 		case 'deadLetter':
 			await receiver.deadLetterMessage(message);
 			break;
+		case 'defer':
+			await receiver.deferMessage(message);
+			break;
 		default:
 			await receiver.completeMessage(message);
 	}
@@ -44,6 +48,7 @@ export class AzureServiceBusTrigger implements INodeType {
 		icon: 'file:azureServiceBus.svg',
 		group: ['trigger'],
 		version: 1,
+		documentationUrl: 'https://github.com/fsilvaortiz/n8n-nodes-azure-service-bus',
 		subtitle:
 			'={{$parameter["entityType"] === "subscription" ? $parameter["topicName"] + "/" + $parameter["subscriptionName"] : $parameter["queueName"]}}',
 		description: 'Triggers when a message is received from Azure Service Bus',
@@ -150,6 +155,45 @@ export class AzureServiceBusTrigger implements INodeType {
 				description: 'How messages are received from Service Bus',
 			},
 			{
+				displayName: 'Session Mode',
+				name: 'sessionMode',
+				type: 'options',
+				options: [
+					{
+						name: 'None',
+						value: 'none',
+						description: 'Do not use sessions (standard receiver)',
+					},
+					{
+						name: 'Accept Next Session',
+						value: 'acceptNext',
+						description:
+							'Automatically accept the next available session',
+					},
+					{
+						name: 'Specific Session',
+						value: 'specific',
+						description: 'Accept a specific session by ID',
+					},
+				],
+				default: 'none',
+				description:
+					'Session handling mode for session-enabled queues and subscriptions',
+			},
+			{
+				displayName: 'Session ID',
+				name: 'sessionId',
+				type: 'string',
+				default: '',
+				required: true,
+				displayOptions: {
+					show: {
+						sessionMode: ['specific'],
+					},
+				},
+				description: 'The specific session ID to accept messages from',
+			},
+			{
 				displayName: 'Options',
 				name: 'options',
 				type: 'collection',
@@ -230,10 +274,40 @@ export class AzureServiceBusTrigger implements INodeType {
 								value: 'deadLetter',
 								description: 'Move the message to the dead letter queue',
 							},
+							{
+								name: 'Defer',
+								value: 'defer',
+								description:
+									'Defer the message so it can be received later by sequence number',
+							},
 						],
 						default: 'complete',
 						description:
 							'What to do with the message when the workflow succeeds',
+					},
+					{
+						displayName: 'Sub Queue',
+						name: 'subQueueType',
+						type: 'options',
+						options: [
+							{
+								name: 'None',
+								value: 'none',
+								description: 'Receive from the main queue or subscription',
+							},
+							{
+								name: 'Dead Letter',
+								value: 'deadLetter',
+								description: 'Receive from the dead-letter sub-queue',
+							},
+							{
+								name: 'Transfer Dead Letter',
+								value: 'transferDeadLetter',
+								description: 'Receive from the transfer dead-letter sub-queue',
+							},
+						],
+						default: 'none',
+						description: 'Which sub-queue to receive messages from',
 					},
 				],
 			},
@@ -243,6 +317,7 @@ export class AzureServiceBusTrigger implements INodeType {
 	async trigger(this: ITriggerFunctions): Promise<ITriggerResponse> {
 		const entityType = this.getNodeParameter('entityType') as 'queue' | 'subscription';
 		const receiveMode = this.getNodeParameter('receiveMode') as 'peekLock' | 'receiveAndDelete';
+		const sessionMode = (this.getNodeParameter('sessionMode', 'none') ?? 'none') as string;
 		const options = this.getNodeParameter('options', {}) as TriggerOptions;
 
 		const queueName =
@@ -270,14 +345,42 @@ export class AzureServiceBusTrigger implements INodeType {
 
 		const credentials = await getCredentials(this);
 		const client = createServiceBusClient(credentials);
-		const receiver = createReceiver(client, entityType, {
-			queueName,
-			topicName,
-			subscriptionName,
-			receiveMode,
-		});
+
+		const subQueueType = options.subQueueType;
+
+		let receiver: ServiceBusReceiver;
+
+		if (sessionMode !== 'none') {
+			const triggerSessionId =
+				sessionMode === 'specific'
+					? (this.getNodeParameter('sessionId') as string)
+					: undefined;
+
+			receiver = await createSessionReceiver(
+				client,
+				entityType,
+				sessionMode as 'acceptNext' | 'specific',
+				{
+					queueName,
+					topicName,
+					subscriptionName,
+					sessionId: triggerSessionId,
+					receiveMode,
+				},
+			) as unknown as ServiceBusReceiver;
+		} else {
+			receiver = createReceiver(client, entityType, {
+				queueName,
+				topicName,
+				subscriptionName,
+				receiveMode,
+				subQueueType:
+					subQueueType && subQueueType !== 'none' ? subQueueType : undefined,
+			});
+		}
 
 		const jsonParseBody = options.jsonParseBody ?? false;
+		const contentIsBinary = options.contentIsBinary ?? false;
 		const settlementAction = options.settlementAction ?? 'complete';
 		const failureAction = options.failureAction ?? 'abandon';
 
@@ -285,7 +388,7 @@ export class AzureServiceBusTrigger implements INodeType {
 			message: ServiceBusReceivedMessage,
 			donePromise?: IDeferredPromise<IRun>,
 		) => {
-			const parsedMessage = parseReceivedMessage(message, jsonParseBody);
+			const parsedMessage = parseReceivedMessage(message, jsonParseBody, contentIsBinary);
 			const resultData = [this.helpers.returnJsonArray([parsedMessage])];
 
 			this.emit(resultData, undefined, donePromise);
@@ -310,7 +413,7 @@ export class AzureServiceBusTrigger implements INodeType {
 		const manualTriggerFunction = async () => {
 			const messages = await receiver.receiveMessages(1, { maxWaitTimeInMs: 30000 });
 			if (messages.length > 0) {
-				const parsedMessage = parseReceivedMessage(messages[0], jsonParseBody);
+				const parsedMessage = parseReceivedMessage(messages[0], jsonParseBody, contentIsBinary);
 				this.emit([this.helpers.returnJsonArray([parsedMessage])]);
 
 				if (receiveMode === 'peekLock') {

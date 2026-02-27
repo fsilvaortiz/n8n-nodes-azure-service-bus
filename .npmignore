@@ -1,0 +1,17 @@
+nodes/
+credentials/
+*.ts
+!dist/**/*.js
+tsconfig.json
+jest.config.ts
+.eslintrc.*
+.prettierrc*
+.gitignore
+.DS_Store
+*.log
+*.tmp
+coverage/
+build.log
+specs/
+.specify/
+.claude/
