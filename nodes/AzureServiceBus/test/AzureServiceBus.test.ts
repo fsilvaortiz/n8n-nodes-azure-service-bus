@@ -289,7 +289,7 @@ describe('AzureServiceBus Node', () => {
 	describe('v2 operations', () => {
 		beforeEach(() => {
 			executeFunctions.getNode.mockReturnValue({
-				typeVersion: 2,
+				typeVersion: 1,
 			} as any);
 		});
 
@@ -650,7 +650,7 @@ describe('AzureServiceBus Node', () => {
 	describe('queue admin operations', () => {
 		beforeEach(() => {
 			executeFunctions.getNode.mockReturnValue({
-				typeVersion: 2,
+				typeVersion: 1,
 			} as any);
 		});
 
@@ -804,7 +804,7 @@ describe('AzureServiceBus Node', () => {
 	describe('topic admin operations', () => {
 		beforeEach(() => {
 			executeFunctions.getNode.mockReturnValue({
-				typeVersion: 2,
+				typeVersion: 1,
 			} as any);
 		});
 
@@ -919,7 +919,7 @@ describe('AzureServiceBus Node', () => {
 	describe('subscription admin operations', () => {
 		beforeEach(() => {
 			executeFunctions.getNode.mockReturnValue({
-				typeVersion: 2,
+				typeVersion: 1,
 			} as any);
 		});
 

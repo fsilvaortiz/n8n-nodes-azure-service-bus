@@ -459,7 +459,7 @@ export class AzureServiceBus implements INodeType {
 		name: 'azureServiceBus',
 		icon: 'file:azureServiceBus.svg',
 		group: ['transform'],
-		version: [1, 2],
+		version: 1,
 		subtitle:
 			'={{$parameter["resource"] + ": " + ($parameter["operation"] || "send")}}',
 		description: 'Send messages to Azure Service Bus queues and topics',
@@ -518,7 +518,7 @@ export class AzureServiceBus implements INodeType {
 				noDataExpression: true,
 				displayOptions: {
 					show: {
-						'@version': [2],
+
 						resource: ['queue', 'topic'],
 					},
 				},
@@ -603,7 +603,7 @@ export class AzureServiceBus implements INodeType {
 				required: true,
 				displayOptions: {
 					show: {
-						'@version': [2],
+
 						resource: ['topic'],
 						operation: ['peek', 'receiveDeferred'],
 					},
@@ -667,7 +667,7 @@ export class AzureServiceBus implements INodeType {
 				required: true,
 				displayOptions: {
 					show: {
-						'@version': [2],
+
 						resource: ['queue', 'topic'],
 						operation: ['schedule'],
 					},
@@ -683,7 +683,7 @@ export class AzureServiceBus implements INodeType {
 				required: true,
 				displayOptions: {
 					show: {
-						'@version': [2],
+
 						resource: ['queue', 'topic'],
 						operation: ['cancelScheduled', 'receiveDeferred'],
 					},
@@ -701,7 +701,7 @@ export class AzureServiceBus implements INodeType {
 				},
 				displayOptions: {
 					show: {
-						'@version': [2],
+
 						resource: ['queue', 'topic'],
 						operation: ['peek'],
 					},
@@ -715,7 +715,7 @@ export class AzureServiceBus implements INodeType {
 				default: '',
 				displayOptions: {
 					show: {
-						'@version': [2],
+
 						resource: ['queue', 'topic'],
 						operation: ['peek'],
 					},
@@ -730,7 +730,7 @@ export class AzureServiceBus implements INodeType {
 				default: 'none',
 				displayOptions: {
 					show: {
-						'@version': [2],
+
 						resource: ['queue', 'topic'],
 						operation: ['peek', 'receiveDeferred'],
 					},
@@ -950,11 +950,7 @@ export class AzureServiceBus implements INodeType {
 				);
 			}
 
-			const typeVersion = this.getNode().typeVersion;
-			const operation =
-				typeVersion >= 2
-					? (this.getNodeParameter('operation', 0) as string)
-					: 'send';
+			const operation = this.getNodeParameter('operation', 0) as string;
 
 			if (operation === 'peek' || operation === 'receiveDeferred') {
 				await executeReceiverOperation(

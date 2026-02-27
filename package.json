@@ -1,7 +1,7 @@
 {
-	"name": "n8n-nodes-azure-service-bus",
-	"version": "0.1.0",
-	"description": "n8n community node for Azure Service Bus — send and receive messages from queues, topics, and subscriptions.",
+	"name": "n8n-nodes-azure-servicebus-enhanced",
+	"version": "1.0.0",
+	"description": "n8n community node for Azure Service Bus — send, receive, schedule, peek, batch, and manage queues, topics, and subscriptions with full admin CRUD, dead letter support, and session handling.",
 	"keywords": [
 		"n8n-community-node-package",
 		"n8n",
