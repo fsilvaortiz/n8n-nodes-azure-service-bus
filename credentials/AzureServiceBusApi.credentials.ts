@@ -8,7 +8,7 @@ export class AzureServiceBusApi implements ICredentialType {
 
 	displayName = 'Azure Service Bus API';
 
-	documentationUrl = 'https://github.com/fsilvaortiz/n8n-nodes-azure-service-bus';
+	documentationUrl = 'https://github.com/fsilvaortiz/n8n-nodes-azure-service-bus#credentials';
 
 	properties: INodeProperties[] = [
 		{
