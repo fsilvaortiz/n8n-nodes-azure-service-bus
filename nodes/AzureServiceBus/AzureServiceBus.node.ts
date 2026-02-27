@@ -460,6 +460,7 @@ export class AzureServiceBus implements INodeType {
 		icon: 'file:azureServiceBus.svg',
 		group: ['transform'],
 		version: 1,
+		documentationUrl: 'https://github.com/fsilvaortiz/n8n-nodes-azure-service-bus',
 		subtitle:
 			'={{$parameter["resource"] + ": " + ($parameter["operation"] || "send")}}',
 		description: 'Send messages to Azure Service Bus queues and topics',

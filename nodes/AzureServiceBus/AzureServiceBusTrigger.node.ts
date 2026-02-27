@@ -48,6 +48,7 @@ export class AzureServiceBusTrigger implements INodeType {
 		icon: 'file:azureServiceBus.svg',
 		group: ['trigger'],
 		version: 1,
+		documentationUrl: 'https://github.com/fsilvaortiz/n8n-nodes-azure-service-bus',
 		subtitle:
 			'={{$parameter["entityType"] === "subscription" ? $parameter["topicName"] + "/" + $parameter["subscriptionName"] : $parameter["queueName"]}}',
 		description: 'Triggers when a message is received from Azure Service Bus',
